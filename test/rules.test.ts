@@ -585,3 +585,68 @@ test('a supplied key that does not verify the token is not treated as measured',
     [false],
   );
 });
+
+test('JWT-KID-TRAVERSAL catches a percent-encoded path separator', () => {
+  // Both patterns required a *literal* `/` or `\`, and a verifier that uses
+  // `kid` to locate a key file generally decodes it first. So
+  // `..%2fetc%2fpasswd` matched neither TRAVERSAL nor PATH_SHAPED and produced
+  // no kid finding at all. The `%2e%2e` clause covered the mirror case --
+  // encoded dots, literal slash -- which is how the gap stayed hidden: one
+  // encoding of the pair was handled and the other was not.
+  for (const kid of [
+    '..%2fetc%2fpasswd',
+    '..%2f..%2fetc%2fshadow',
+    '..%5c..%5cwindows%5csystem32%5cdrivers%5cetc%5chosts',
+    '%2e%2e%2fetc%2fpasswd',
+    '..%2Fetc%2Fpasswd',
+    'keys%2e%2e%2fsigning',
+    '../etc/passwd',
+  ]) {
+    const analysis = analyseToken(
+      makeToken({ alg: 'HS256', kid }, wellFormedClaims(), Buffer.alloc(32)),
+      { now: NOW, includeAttacks: false },
+    );
+    assert.ok(ids(analysis.findings).includes('JWT-KID-TRAVERSAL'), kid);
+  }
+});
+
+test('a kid that is a plain path is still the lower JWT-KID-PATH', () => {
+  // The traversal rule widening must not swallow the path rule: a kid that
+  // names a file without climbing out of its directory is a weaker finding and
+  // has to stay one.
+  for (const kid of ['keys/signing.pem', 'etc%2fkeys%2fsigning.pem']) {
+    const analysis = analyseToken(
+      makeToken({ alg: 'HS256', kid }, wellFormedClaims(), Buffer.alloc(32)),
+      { now: NOW, includeAttacks: false },
+    );
+    const found = ids(analysis.findings);
+    assert.ok(found.includes('JWT-KID-PATH'), kid);
+    assert.ok(!found.includes('JWT-KID-TRAVERSAL'), kid);
+  }
+});
+
+test('an ordinary kid reports nothing about paths', () => {
+  for (const kid of ['prod-key-2026', 'rsa-2048-a', 'key_1', '2026-10-rotation']) {
+    const analysis = analyseToken(
+      makeToken({ alg: 'HS256', kid }, wellFormedClaims(), Buffer.alloc(32)),
+      { now: NOW, includeAttacks: false },
+    );
+    const found = ids(analysis.findings);
+    assert.ok(!found.includes('JWT-KID-TRAVERSAL'), kid);
+    assert.ok(!found.includes('JWT-KID-PATH'), kid);
+  }
+});
+
+test('a lone percent in a kid does not throw', () => {
+  // `kid` is attacker input and a bare `%` is a legal thing for it to contain;
+  // decodeURIComponent would throw on it, which is why only the separator
+  // escapes are decoded.
+  for (const kid of ['100%', '%', '%zz', '%2', 'a%%2fb']) {
+    assert.doesNotThrow(() =>
+      analyseToken(makeToken({ alg: 'HS256', kid }, wellFormedClaims(), Buffer.alloc(32)), {
+        now: NOW,
+        includeAttacks: false,
+      }),
+    );
+  }
+});

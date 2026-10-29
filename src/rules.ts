@@ -40,6 +40,43 @@ function hostOf(url: string): string | null {
 const URL_SHAPED = /^[a-z][a-z0-9+.\-]*:\/\//i;
 const TRAVERSAL = /(^|[/\\])\.\.([/\\]|$)|%2e%2e|%00|\0/i;
 const PATH_SHAPED = /^[/\\]|[/\\]|\.(pem|key|crt|der|json|txt)$/i;
+
+/**
+ * A `kid` with its percent-encoded path separators decoded, once.
+ *
+ * Both patterns above require a *literal* `/` or `\`. A verifier that uses
+ * `kid` to locate a key file generally decodes it first, so
+ * `..%2fetc%2fpasswd` is the same attack as `../etc/passwd` -- and it matched
+ * neither pattern, so it produced no `kid` finding at all. Neither did
+ * `..%5c..%5cwindows`. The `%2e%2e` clause covered the mirror-image case
+ * where the dots are encoded and the slash is literal, which is how the gap
+ * stayed hidden: one encoding of the pair was handled and the other was not.
+ *
+ * Only the separators, the dot and the NUL are decoded, not the whole value.
+ * `decodeURIComponent` would throw on a malformed escape -- `kid` is attacker
+ * input and a lone `%` is a legal thing for it to contain -- and would also
+ * rewrite characters the SQL and URL rules read literally.
+ *
+ * One pass, deliberately: `..%252f` decodes to `..%2f`, not to `../`, and a
+ * verifier that double-decodes is a different bug from the one this reports.
+ */
+function decodePathEscapes(value: string): string {
+  return value
+    .replace(/%2f/gi, '/')
+    .replace(/%5c/gi, '\\')
+    .replace(/%2e/gi, '.')
+    .replace(/%00/gi, '\0');
+}
+
+/** True when `kid` reads as traversal either as written or once decoded. */
+function looksLikeTraversal(kid: string): boolean {
+  return TRAVERSAL.test(kid) || TRAVERSAL.test(decodePathEscapes(kid));
+}
+
+/** True when `kid` reads as a filesystem path either as written or once decoded. */
+function looksLikePath(kid: string): boolean {
+  return PATH_SHAPED.test(kid) || PATH_SHAPED.test(decodePathEscapes(kid));
+}
 const SQL_META = /['"`;]|--|\/\*|\bunion\b|\|\||\bselect\b/i;
 
 /** RFC 7797 is the only extension header in common use, so it is the only one treated as known. */
@@ -299,7 +336,7 @@ export const RULES: readonly Rule[] = [
     name: 'path traversal in kid',
     apply: (context) => {
       const kid = headerString(context, 'kid');
-      if (kid === null || !TRAVERSAL.test(kid)) return null;
+      if (kid === null || !looksLikeTraversal(kid)) return null;
       return {
         id: 'JWT-KID-TRAVERSAL',
         name: 'path traversal in kid',
@@ -317,8 +354,8 @@ export const RULES: readonly Rule[] = [
     apply: (context) => {
       const kid = headerString(context, 'kid');
       if (kid === null) return null;
-      if (TRAVERSAL.test(kid) || URL_SHAPED.test(kid)) return null;
-      if (!PATH_SHAPED.test(kid)) return null;
+      if (looksLikeTraversal(kid) || URL_SHAPED.test(kid)) return null;
+      if (!looksLikePath(kid)) return null;
       return {
         id: 'JWT-KID-PATH',
         name: 'kid looks like a filesystem path',

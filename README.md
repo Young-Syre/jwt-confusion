@@ -398,7 +398,7 @@ belongs in a report.
 | `JWT-JWK-SELF-SIGNED` | critical | **yes** | The signature verifies under that embedded key: the token is entirely self-asserted. |
 | `JWT-JKU-PRESENT` | high | no | A key-set URL in the header. SSRF into the verifier's key fetch, then trust in what comes back. Reported, never fetched. |
 | `JWT-X5U-PRESENT` | high | no | The same, for an X.509 certificate chain. Reported, never fetched. |
-| `JWT-KID-TRAVERSAL` | high | no | Path traversal in `kid`. The attacker picks the key file. |
+| `JWT-KID-TRAVERSAL` | high | no | Path traversal in `kid`. The attacker picks the key file. Percent-encoded separators count: `..%2f` and `..%5c` are the same attack as `../`, because a verifier that uses `kid` to locate a file generally decodes it first. |
 | `JWT-KID-PATH` | medium | no | `kid` is path-shaped, implying a filesystem lookup worth probing. |
 | `JWT-KID-URL` | high | no | `kid` holds a URL, implying the verifier dereferences it. Reported, never fetched. |
 | `JWT-KID-SQLMETA` | high | no | SQL metacharacters in `kid`. A `UNION SELECT` makes the attacker the author of the verification key. |
