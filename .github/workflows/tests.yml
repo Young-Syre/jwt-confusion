@@ -1,0 +1,133 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ['20', '22', '24']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      # There are no runtime dependencies. The lockfile pins typescript and
+      # @types/node, and nothing else.
+      - name: Install devDependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Run the test suite
+        run: node --test dist/test/*.test.js
+
+      # Everything below drives the compiled CLI the way a user would and
+      # asserts on the documented exit codes.
+      #
+      # The default shell is `bash -e`, under which a failing command aborts the
+      # step. To assert on a non-zero exit code without aborting, each expected
+      # failure is written as `cmd || status=$?`: the `||` list suppresses the
+      # abort, and the following `test` is what decides the step.
+      - name: --help exits 0 and documents the exit codes
+        run: node dist/src/cli.js --help | grep -q 'EXIT CODES'
+
+      - name: --version agrees with package.json
+        run: |
+          grep -q "\"version\": \"$(node dist/src/cli.js -V)\"" package.json
+
+      - name: a weak sample is analysed and exits 1
+        run: |
+          node dist/src/cli.js sample > weak.jwt
+          status=0
+          out=$(node dist/src/cli.js "$(cat weak.jwt)" --now 1760100000) || status=$?
+          echo "$out"
+          echo "$out" | grep -q 'JWT-WEAK-HMAC-SECRET'
+          echo "$out" | grep -q 'JWT-KID-TRAVERSAL'
+          echo "$out" | grep -q 'confirmed locally'
+          echo "$out" | grep -q 'No network request was made'
+          test "$status" -eq 1
+
+      - name: --fail-on never exits 0 on the same token
+        run: node dist/src/cli.js "$(cat weak.jwt)" --now 1760100000 --fail-on never > /dev/null
+
+      - name: algorithm confusion is confirmed against a generated key
+        run: |
+          node dist/src/cli.js sample --kind confused --write-key issuer-public.pem > confused.jwt
+          status=0
+          out=$(node dist/src/cli.js "$(cat confused.jwt)" \
+            --public-key issuer-public.pem --expect-alg RS256 --now 1760100000) || status=$?
+          echo "$out"
+          echo "$out" | grep -q 'JWT-ALG-CONFUSION-HS'
+          echo "$out" | grep -q 'matchedRepresentation: file-bytes'
+          echo "$out" | grep -q 'JWT-ALG-MISMATCH'
+          test "$status" -eq 1
+
+      - name: an unparseable token exits 3
+        run: |
+          status=0
+          node dist/src/cli.js not-a-token > /dev/null 2>&1 || status=$?
+          test "$status" -eq 3
+          status=0
+          node dist/src/cli.js a.b.c.d.e > /dev/null 2>&1 || status=$?
+          test "$status" -eq 3
+
+      - name: an unknown option exits 2
+        run: |
+          status=0
+          node dist/src/cli.js --nonsense value > /dev/null 2>&1 || status=$?
+          test "$status" -eq 2
+          status=0
+          node dist/src/cli.js sample --kind nope > /dev/null 2>&1 || status=$?
+          test "$status" -eq 2
+
+      - name: every generated candidate is a well-formed compact JWS
+        run: |
+          node dist/src/cli.js sample --kind rsa --write-key rsa-public.pem > rsa.jwt
+          status=0
+          node dist/src/cli.js "$(cat rsa.jwt)" --public-key rsa-public.pem --json \
+            > analysis.json || status=$?
+          test "$status" -eq 1
+          cat > check-candidates.cjs <<'JS'
+          const analysis = require('./analysis.json');
+          if (analysis.attacks.length < 8) {
+            throw new Error(`expected at least 8 candidates, got ${analysis.attacks.length}`);
+          }
+          for (const attack of analysis.attacks) {
+            if (attack.token.split('.').length !== 3) {
+              throw new Error(`${attack.id} is not a compact JWS`);
+            }
+            if (attack.verified !== null && /FAILED/.test(attack.verified)) {
+              throw new Error(`${attack.id} failed its own self-check`);
+            }
+          }
+          console.log(`${analysis.attacks.length} candidates, all well-formed`);
+          JS
+          node check-candidates.cjs
+
+      - name: nothing committed is shaped like a credential
+        run: |
+          # The PEM pattern is written with a character class so that this file
+          # does not itself contain the literal it is looking for.
+          if grep -rEn -- '-----BEGIN [A-Z ]*PRIVAT[E] KEY-----' \
+            --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist .; then
+            echo 'a PEM private key is present'; exit 1
+          fi
+          if grep -rEn -- 'eyJ[A-Za-z0-9_-]{30,}\.[A-Za-z0-9_-]{30,}' \
+            --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=dist \
+            --exclude='*.jwt' --exclude='analysis.json' .; then
+            echo 'a complete JWT is present'; exit 1
+          fi
