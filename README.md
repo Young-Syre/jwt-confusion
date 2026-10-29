@@ -13,7 +13,7 @@ and `x5u` URLs are reported and never requested.
 
 ---
 
-## Why this bug class exists
+## A JWT tells the verifier how to verify it
 
 A JWT is the only common credential format that tells the code checking it how
 to check it.
