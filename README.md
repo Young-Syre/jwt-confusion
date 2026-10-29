@@ -5,7 +5,6 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6.svg)](./tsconfig.json)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![dependencies: none](https://img.shields.io/badge/dependencies-none-lightgrey.svg)](#dependencies)
-[![tests](https://img.shields.io/badge/tests-119%20cases%2C%20352%20assertions-success.svg)](./test)
 
 Read a JWT and report what it reveals about the code that will verify it, then
 generate the candidate tokens that settle each question. Offline, always: `jku`
