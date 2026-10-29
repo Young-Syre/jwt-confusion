@@ -1,0 +1,55 @@
+{
+  "name": "jwt-confusion",
+  "version": "0.1.0",
+  "description": "Offline JWT verifier-weakness analyser and attack-matrix generator: reports what a token reveals about the code that will verify it, and mints the candidate tokens that prove it.",
+  "license": "MIT",
+  "author": "David Nichols",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "jwt-confusion": "dist/src/cli.js"
+  },
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": [
+    "dist/src",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Young-Syre/jwt-confusion.git"
+  },
+  "homepage": "https://github.com/Young-Syre/jwt-confusion#readme",
+  "bugs": {
+    "url": "https://github.com/Young-Syre/jwt-confusion/issues"
+  },
+  "keywords": [
+    "jwt",
+    "jws",
+    "security",
+    "appsec",
+    "algorithm-confusion",
+    "bug-bounty",
+    "offline"
+  ],
+  "scripts": {
+    "build": "tsc --build tsconfig.json && chmod +x dist/src/cli.js",
+    "clean": "rm -rf dist",
+    "prepack": "npm run clean && npm run build",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,18 @@
+# Build output
+dist/
+*.tsbuildinfo
+
+# Dependencies
+node_modules/
+
+# Local scratch. Sample tokens are generated, never committed: see the
+# "Why there are no key fixtures here" section of the README.
+*.jwt
+*.jwks
+*.pem
+analysis.json
+check-candidates.cjs
+sample.txt
+tmp/
+.env
+.DS_Store
